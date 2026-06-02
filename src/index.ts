@@ -27,9 +27,9 @@ const PORT = process.env.PORT || 3000;
 // Store rooms in-memory
 const rooms = new Map<string, Room>();
 
-// Helper to generate unique 4-character Room ID
+// Helper to generate unique 4-digit Room ID (only numbers)
 function generateRoomId(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const chars = '0123456789';
   let result = '';
   for (let i = 0; i < 4; i++) {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
