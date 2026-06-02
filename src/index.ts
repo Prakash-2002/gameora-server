@@ -9,6 +9,11 @@ import { decideBid, decideTrumpSuit, decidePlayCard } from './botAi.js';
 const app = express();
 app.use(cors());
 
+// Health check endpoint for Render/browser verification
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'Gameora Matchmaking Server is running!' });
+});
+
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
