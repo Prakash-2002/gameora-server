@@ -124,6 +124,12 @@ const getInitialState = () => ({
     team1GameScore: 0,
     team2GameScore: 0,
     message: 'Lobby joined. Host click Start to deal cards.',
+    matchStats: [
+        { bidsWon: 0, bidsMet: 0, pointsTaken: 0, tricksWon: 0 },
+        { bidsWon: 0, bidsMet: 0, pointsTaken: 0, tricksWon: 0 },
+        { bidsWon: 0, bidsMet: 0, pointsTaken: 0, tricksWon: 0 },
+        { bidsWon: 0, bidsMet: 0, pointsTaken: 0, tricksWon: 0 },
+    ],
 });
 exports.getInitialState = getInitialState;
 const checkBiddingComplete = (passes, currentBid, lastBidderIndex) => {
@@ -201,6 +207,12 @@ function gameReducer(state, action, playerNames) {
                     finalBid = 14;
                     msg = `All passed. Dealer (${getPlayerName(state.dealer)}) is forced to bid 14.`;
                 }
+                const updatedStats = state.matchStats.map((stat, idx) => {
+                    if (idx === finalWinner) {
+                        return { ...stat, bidsWon: stat.bidsWon + 1 };
+                    }
+                    return stat;
+                });
                 return {
                     ...state,
                     currentBid: finalBid,
@@ -209,6 +221,7 @@ function gameReducer(state, action, playerNames) {
                     gamePhase: 'trump_selection',
                     activePlayer: finalWinner,
                     message: `${msg} ${getPlayerName(finalWinner)} wins the bid at ${finalBid}. Select trump suit!`,
+                    matchStats: updatedStats,
                 };
             }
             let nextPlayer = (playerIndex + 1) % 4;
@@ -360,6 +373,16 @@ function gameReducer(state, action, playerNames) {
                 const isTeam1Winner = winnerIndex === 0 || winnerIndex === 2;
                 const newTeam1Points = isTeam1Winner ? state.team1RoundPoints + trickPoints : state.team1RoundPoints;
                 const newTeam2Points = !isTeam1Winner ? state.team2RoundPoints + trickPoints : state.team2RoundPoints;
+                const updatedStats = state.matchStats.map((stat, idx) => {
+                    if (idx === winnerIndex) {
+                        return {
+                            ...stat,
+                            tricksWon: stat.tricksWon + 1,
+                            pointsTaken: stat.pointsTaken + trickPoints,
+                        };
+                    }
+                    return stat;
+                });
                 const newTricksPlayed = [...state.tricksPlayed, updatedTrick];
                 if (newTricksPlayed.length === 8) {
                     let multiplier = 1;
@@ -408,6 +431,23 @@ function gameReducer(state, action, playerNames) {
                             roundResultMsg += ` Team 2 loses -${scoreDelta} pts!`;
                         }
                     }
+                    const finalStats = updatedStats.map((stat, idx) => {
+                        const isBidder = state.isSinglePlay
+                            ? idx === state.singlePlayerIndex
+                            : idx === state.bidWinner;
+                        if (isBidder && bidderPassedBid) {
+                            return { ...stat, bidsMet: stat.bidsMet + 1 };
+                        }
+                        return stat;
+                    });
+                    const isGameOver = finalTeam1GameScore >= 6 ||
+                        finalTeam2GameScore >= 6 ||
+                        finalTeam1GameScore <= -6 ||
+                        finalTeam2GameScore <= -6;
+                    const nextPhase = isGameOver ? 'game_over' : 'round_end';
+                    const gameFinishedMsg = isGameOver
+                        ? `Match Finished! Final Score: Team 1: ${finalTeam1GameScore} - Team 2: ${finalTeam2GameScore}.`
+                        : `Round Over! ${roundResultMsg}`;
                     return {
                         ...state,
                         playerHands: updatedHands,
@@ -417,9 +457,10 @@ function gameReducer(state, action, playerNames) {
                         team2RoundPoints: newTeam2Points,
                         team1GameScore: finalTeam1GameScore,
                         team2GameScore: finalTeam2GameScore,
-                        gamePhase: 'round_end',
+                        gamePhase: nextPhase,
                         activePlayer: -1,
-                        message: `Round Over! ${roundResultMsg}`,
+                        message: gameFinishedMsg,
+                        matchStats: finalStats,
                     };
                 }
                 return {
@@ -431,6 +472,7 @@ function gameReducer(state, action, playerNames) {
                     team2RoundPoints: newTeam2Points,
                     activePlayer: winnerIndex,
                     message: `${getPlayerName(winnerIndex)} won the trick (+${trickPoints} pts) and leads next!`,
+                    matchStats: updatedStats,
                 };
             }
             let nextPlayer = (playerIndex + 1) % 4;
@@ -451,12 +493,19 @@ function gameReducer(state, action, playerNames) {
         case 'NEXT_ROUND': {
             const nextDealer = (state.dealer + 1) % 4;
             const nextActive = (nextDealer + 1) % 4;
+            const deck = (0, exports.shuffleDeck)((0, exports.createDeck)());
+            const fullHands = [[], [], [], []];
+            for (let i = 0; i < 8; i++) {
+                for (let p = 0; p < 4; p++) {
+                    fullHands[p].push(deck[i * 4 + p]);
+                }
+            }
             return {
                 ...state,
-                gamePhase: 'dealing_first',
+                gamePhase: 'bidding',
                 dealer: nextDealer,
                 activePlayer: nextActive,
-                playerHands: [[], [], [], []],
+                playerHands: fullHands,
                 currentBid: 0,
                 bidWinner: null,
                 bidPasses: [false, false, false, false],
@@ -469,7 +518,7 @@ function gameReducer(state, action, playerNames) {
                 tricksPlayed: [],
                 team1RoundPoints: 0,
                 team2RoundPoints: 0,
-                message: `Dealer rotated to ${getPlayerName(nextDealer)}. Press Deal to start the new round!`,
+                message: `Round started! Dealer rotated to ${getPlayerName(nextDealer)}. ${getPlayerName(nextActive)} begins bidding.`,
             };
         }
         default:

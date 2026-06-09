@@ -11,6 +11,13 @@ export interface Card {
   isFaceDown?: boolean; // For obfuscation to client
 }
 
+export interface PlayerStats {
+  bidsWon: number;
+  bidsMet: number;
+  pointsTaken: number;
+  tricksWon: number;
+}
+
 export type GamePhase =
   | 'dealing_first'     // Dealt 4 cards each
   | 'bidding'           // Players bid (14 to 28 or Pass)
@@ -18,7 +25,8 @@ export type GamePhase =
   | 'double_challenge'  // Players can double/redouble or select single play
   | 'dealing_second'    // Dealt remaining 4 cards each
   | 'playing'           // Trick playing phase (8 tricks total)
-  | 'round_end';        // Scoring & winner display
+  | 'round_end'         // Scoring & winner display
+  | 'game_over';        // Match summary & MVP dashboard
 
 export interface Play {
   playerIndex: number;
@@ -65,6 +73,7 @@ export interface GameState {
   team2GameScore: number;
 
   message: string; // Informational status message for UI
+  matchStats: PlayerStats[]; // Individual statistics per player index (0-3)
 }
 
 // Server room structures
@@ -75,11 +84,18 @@ export interface Player {
   isHost: boolean;
   isBot: boolean;
   playerIndex: number; // 0-3
+  sessionToken?: string;
 }
+
+import { LudoState } from './ludoTypes.js';
+import { TicTacToeState } from './tictactoeTypes.js';
+import { SudokuState } from './sudokuTypes.js';
+import { ChessState } from './chessTypes.js';
 
 export interface Room {
   id: string;
   players: Player[];
-  gameState: GameState | null;
+  gameType?: 'game_28' | 'ludo' | 'tictactoe' | 'sudoku' | 'chess';
+  gameState: GameState | LudoState | TicTacToeState | SudokuState | ChessState | null;
   botsCount: number;
 }
