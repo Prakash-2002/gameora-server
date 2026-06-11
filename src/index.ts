@@ -69,6 +69,7 @@ const rooms = new Map<string, Room>();
 
 // Turn Timer Management
 const turnTimers = new Map<string, NodeJS.Timeout>();
+const lobbyDisconnectTimers = new Map<string, NodeJS.Timeout>();
 const TURN_TIMEOUT_MS = 18000; // 18 seconds (gives 3s grace buffer over client's 15s timer)
 
 function handleLudoTurnTimeout(roomId: string, playerIndex: number) {
@@ -1001,11 +1002,107 @@ io.on('connection', (socket: Socket) => {
 
 
 
+  // Leave Room
+  socket.on('leave-room', ({ roomId }: { roomId: string }) => {
+    const room = rooms.get(roomId);
+    if (!room) return;
+
+    const playerIdx = room.players.findIndex(p => p.socketId === socket.id);
+    if (playerIdx === -1) return;
+
+    const player = room.players[playerIdx];
+
+    // Cancel lobby disconnect timer if active
+    if (player.sessionToken && lobbyDisconnectTimers.has(player.sessionToken)) {
+      clearTimeout(lobbyDisconnectTimers.get(player.sessionToken));
+      lobbyDisconnectTimers.delete(player.sessionToken);
+      console.log(`[Leave] Cancelled lobby disconnect timer for player ${player.name}`);
+    }
+
+    if (!room.gameState) {
+      // Game has not started: remove immediately
+      room.players.splice(playerIdx, 1);
+      console.log(`Player ${player.name} left room lobby ${roomId} explicitly`);
+      
+      socket.leave(roomId);
+
+      if (room.players.length === 0) {
+        rooms.delete(roomId);
+        if (turnTimers.has(roomId)) {
+          clearTimeout(turnTimers.get(roomId)!);
+          turnTimers.delete(roomId);
+        }
+        console.log(`Deleted empty room lobby ${roomId}`);
+      } else {
+        // If host left, assign new host
+        if (player.isHost) {
+          room.players[0].isHost = true;
+          room.players[0].isReady = true;
+        }
+        // Re-index remaining players
+        room.players.forEach((p, idx) => {
+          p.playerIndex = idx;
+        });
+        broadcastRoomUpdate(roomId);
+      }
+    } else {
+      // Game is in progress: replace with bot (existing logic)
+      console.log(`Player ${player.name} left room ${roomId} mid-game explicitly. Replacing with Bot.`);
+      player.isBot = true;
+      player.name = `${player.name} (Bot)`;
+      player.socketId = `bot_${player.playerIndex}`;
+      
+      socket.leave(roomId);
+
+      // Verify if all players are bots now
+      const allBots = room.players.every(p => p.isBot);
+      if (allBots) {
+        rooms.delete(roomId);
+        if (turnTimers.has(roomId)) {
+          clearTimeout(turnTimers.get(roomId)!);
+          turnTimers.delete(roomId);
+        }
+        console.log(`Deleted room ${roomId} as all players are bots.`);
+      } else {
+        broadcastRoomUpdate(roomId);
+        broadcastGameUpdate(roomId);
+        
+        // Clear turn timer since they are replaced with a bot (bots act immediately)
+        resetTurnTimer(roomId);
+
+        // Trigger bot turn if it was their turn
+        const activePlayerIndex = room.gameType === 'ludo'
+          ? (room.gameState as LudoState).activePlayer
+          : room.gameType === 'tictactoe'
+          ? (room.gameState as TicTacToeState).activePlayer
+          : room.gameType === 'sudoku'
+          ? (room.gameState as SudokuState).activePlayer
+          : room.gameType === 'chess'
+          ? (room.gameState as ChessState).activePlayer
+          : (room.gameState as GameState).activePlayer;
+
+        if (activePlayerIndex === player.playerIndex) {
+          if (room.gameType === 'ludo') {
+            triggerLudoBotActionIfActive(roomId);
+          } else if (room.gameType === 'tictactoe') {
+            triggerTicTacToeBotActionIfActive(roomId);
+          } else if (room.gameType === 'sudoku') {
+            triggerSudokuBotActionIfActive(roomId);
+          } else if (room.gameType === 'chess') {
+            triggerChessBotActionIfActive(roomId);
+          } else {
+            triggerBotActionIfActive(roomId);
+          }
+        }
+      }
+    }
+  });
+
   // Reconnect Player to active session
   socket.on('reconnect-player', ({ roomId, sessionToken }: { roomId: string; sessionToken: string }) => {
     const room = rooms.get(roomId);
-    if (!room || !room.gameState) {
-      socket.emit('reconnect-failed', { message: 'Active game not found.' });
+    if (!room) {
+      socket.emit('reconnect-failed', { message: 'Room not found.' });
       return;
     }
 
@@ -1013,6 +1110,13 @@ io.on('connection', (socket: Socket) => {
     if (!player) {
       socket.emit('reconnect-failed', { message: 'Session not found for this room.' });
       return;
+    }
+
+    // Cancel lobby disconnect timer if active
+    if (lobbyDisconnectTimers.has(sessionToken)) {
+      clearTimeout(lobbyDisconnectTimers.get(sessionToken));
+      lobbyDisconnectTimers.delete(sessionToken);
+      console.log(`[Reconnect] Cancelled lobby disconnect timer for player ${player.name}`);
     }
 
     // Reconnect player by updating socketId and making human again
@@ -1027,13 +1131,16 @@ io.on('connection', (socket: Socket) => {
       roomId,
       playerIndex: player.playerIndex,
       sessionToken,
+      gameStarted: room.gameState !== null,
     });
 
     console.log(`[Reconnect] Player ${player.name} reconnected to room ${roomId} (seat ${player.playerIndex})`);
 
     // Broadcast room and game state updates
     broadcastRoomUpdate(roomId);
-    broadcastGameUpdate(roomId);
+    if (room.gameState) {
+      broadcastGameUpdate(roomId);
+    }
   });
 
   // Handle Disconnection
@@ -1047,28 +1154,56 @@ io.on('connection', (socket: Socket) => {
       const player = room.players[playerIdx];
 
       if (!room.gameState) {
-        // Game has not started: simply remove the player
-        room.players.splice(playerIdx, 1);
-        console.log(`Removed ${player.name} from room lobby ${roomId}`);
+        // Game has not started: do not remove the player immediately.
+        // Wait for a grace period (e.g., 10 seconds) to allow reconnect.
+        if (player.sessionToken) {
+          console.log(`Player ${player.name} disconnected from lobby ${roomId}. Starting 10s grace period.`);
+          
+          const timer = setTimeout(() => {
+            lobbyDisconnectTimers.delete(player.sessionToken!);
+            
+            // Actually remove the player now
+            const currentRoom = rooms.get(roomId);
+            if (!currentRoom) return;
+            const pIdx = currentRoom.players.findIndex(p => p.sessionToken === player.sessionToken);
+            if (pIdx === -1) return;
+            
+            currentRoom.players.splice(pIdx, 1);
+            console.log(`Removed ${player.name} from room lobby ${roomId} after grace period`);
 
-        if (room.players.length === 0) {
-          rooms.delete(roomId);
-          if (turnTimers.has(roomId)) {
-            clearTimeout(turnTimers.get(roomId)!);
-            turnTimers.delete(roomId);
-          }
-          console.log(`Deleted empty room lobby ${roomId}`);
+            if (currentRoom.players.length === 0) {
+              rooms.delete(roomId);
+              console.log(`Deleted empty room lobby ${roomId}`);
+            } else {
+              // If host left, assign new host
+              if (player.isHost) {
+                currentRoom.players[0].isHost = true;
+                currentRoom.players[0].isReady = true;
+              }
+              // Re-index remaining players
+              currentRoom.players.forEach((p, idx) => {
+                p.playerIndex = idx;
+              });
+              broadcastRoomUpdate(roomId);
+            }
+          }, 10000); // 10 seconds grace period
+          
+          lobbyDisconnectTimers.set(player.sessionToken, timer);
         } else {
-          // If host left, assign new host
-          if (player.isHost) {
-            room.players[0].isHost = true;
-            room.players[0].isReady = true;
+          // Fallback if no session token
+          room.players.splice(playerIdx, 1);
+          if (room.players.length === 0) {
+            rooms.delete(roomId);
+          } else {
+            if (player.isHost) {
+              room.players[0].isHost = true;
+              room.players[0].isReady = true;
+            }
+            room.players.forEach((p, idx) => {
+              p.playerIndex = idx;
+            });
+            broadcastRoomUpdate(roomId);
           }
-          // Re-index remaining players
-          room.players.forEach((p, idx) => {
-            p.playerIndex = idx;
-          });
-          broadcastRoomUpdate(roomId);
         }
       } else {
         // Game is in progress: replace disconnected human with a bot
