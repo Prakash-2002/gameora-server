@@ -332,7 +332,7 @@ function broadcastGameUpdate(roomId: string) {
   room.players.forEach(p => {
     if (!p.isBot && p.socketId) {
       let stateToEmit: any;
-      if (room.gameType === 'ludo' || room.gameType === 'tictactoe' || room.gameType === 'sudoku') {
+      if (room.gameType === 'ludo' || room.gameType === 'tictactoe' || room.gameType === 'sudoku' || room.gameType === 'chess') {
         stateToEmit = room.gameState;
       } else {
         stateToEmit = sanitizeStateForPlayer(room.gameState as GameState, p.playerIndex);
