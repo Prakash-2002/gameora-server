@@ -1157,7 +1157,7 @@ io.on('connection', (socket: Socket) => {
         // Game has not started: do not remove the player immediately.
         // Wait for a grace period (e.g., 10 seconds) to allow reconnect.
         if (player.sessionToken) {
-          console.log(`Player ${player.name} disconnected from lobby ${roomId}. Starting 10s grace period.`);
+          console.log(`Player ${player.name} disconnected from lobby ${roomId}. Starting 60s grace period.`);
           
           const timer = setTimeout(() => {
             lobbyDisconnectTimers.delete(player.sessionToken!);
@@ -1186,7 +1186,7 @@ io.on('connection', (socket: Socket) => {
               });
               broadcastRoomUpdate(roomId);
             }
-          }, 10000); // 10 seconds grace period
+          }, 60000); // 60 seconds grace period
           
           lobbyDisconnectTimers.set(player.sessionToken, timer);
         } else {
