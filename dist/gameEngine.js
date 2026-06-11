@@ -134,7 +134,7 @@ const getInitialState = () => ({
 exports.getInitialState = getInitialState;
 const checkBiddingComplete = (passes, currentBid, lastBidderIndex) => {
     const passCount = passes.filter(p => p).length;
-    if (passCount === 3 && currentBid >= 14) {
+    if (passCount === 3 && currentBid >= 16) {
         return { complete: true, forcedBidder: null };
     }
     if (passCount === 4 && currentBid === 0) {
@@ -164,6 +164,9 @@ function gameReducer(state, action, playerNames) {
                 bidWinner: null,
                 bidPasses: [false, false, false, false],
                 lastBidder: null,
+                doubleState: 'none',
+                isSinglePlay: false,
+                singlePlayerIndex: null,
                 trumpSuitSecret: null,
                 isTrumpRevealed: false,
                 trumpRevealer: null,
@@ -204,8 +207,8 @@ function gameReducer(state, action, playerNames) {
                 let finalBid = newBid;
                 if (check.forcedBidder !== null) {
                     finalWinner = state.dealer;
-                    finalBid = 14;
-                    msg = `All passed. Dealer (${getPlayerName(state.dealer)}) is forced to bid 14.`;
+                    finalBid = 16;
+                    msg = `All passed. Dealer (${getPlayerName(state.dealer)}) is forced to bid 16.`;
                 }
                 const updatedStats = state.matchStats.map((stat, idx) => {
                     if (idx === finalWinner) {
@@ -510,6 +513,9 @@ function gameReducer(state, action, playerNames) {
                 bidWinner: null,
                 bidPasses: [false, false, false, false],
                 lastBidder: null,
+                doubleState: 'none',
+                isSinglePlay: false,
+                singlePlayerIndex: null,
                 trumpSuitSecret: null,
                 isTrumpRevealed: false,
                 trumpRevealer: null,

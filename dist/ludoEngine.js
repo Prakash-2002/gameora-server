@@ -101,18 +101,13 @@ function ludoReducer(state, action, playerNames) {
             const playerTokens = state.tokens[playerIndex];
             const movable = (0, exports.getMovableTokens)(playerTokens, rollValue);
             if (movable.length === 0) {
-                // No moves possible, turn passes immediately
-                nextPlayer = (state.activePlayer + 1) % 4;
-                nextPhase = 'rolling';
-                nextConsecutiveSixes = 0; // Reset sixes if turn rotates
-                msg = `${getPlayerName(playerIndex)} rolled ${rollValue} but has no moves. Turn passes to ${getPlayerName(nextPlayer)}.`;
+                msg = `${getPlayerName(playerIndex)} rolled ${rollValue} but has no moves.`;
                 return {
                     ...state,
                     diceValue: rollValue,
-                    activePlayer: nextPlayer,
                     consecutiveSixes: 0,
-                    hasRolled: false,
-                    gamePhase: nextPhase,
+                    hasRolled: true,
+                    gamePhase: 'moving',
                     movableTokenIds: [],
                     message: msg,
                 };
@@ -235,6 +230,23 @@ function ludoReducer(state, action, playerNames) {
                 gamePhase: 'rolling',
                 movableTokenIds: [],
                 message: moveLogMsg,
+            };
+        }
+        case 'PASS_TURN': {
+            const { playerIndex } = action;
+            if (state.activePlayer !== playerIndex || state.gamePhase !== 'moving' || state.movableTokenIds.length > 0) {
+                return state;
+            }
+            const nextPlayer = (state.activePlayer + 1) % 4;
+            return {
+                ...state,
+                activePlayer: nextPlayer,
+                consecutiveSixes: 0,
+                diceValue: 0,
+                hasRolled: false,
+                gamePhase: 'rolling',
+                movableTokenIds: [],
+                message: `Next turn for ${getPlayerName(nextPlayer)}.`,
             };
         }
         case 'RESET_LUDO': {

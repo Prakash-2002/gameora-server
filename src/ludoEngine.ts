@@ -4,7 +4,8 @@ export type LudoAction =
   | { type: 'START_LUDO' }
   | { type: 'ROLL_DICE'; playerIndex: number }
   | { type: 'MOVE_TOKEN'; playerIndex: number; tokenId: number }
-  | { type: 'RESET_LUDO' };
+  | { type: 'RESET_LUDO' }
+  | { type: 'PASS_TURN'; playerIndex: number };
 
 export const getInitialLudoState = (): LudoState => {
   const initialTokens: LudoToken[][] = [];
@@ -112,19 +113,14 @@ export function ludoReducer(state: LudoState, action: LudoAction, playerNames: s
       const movable = getMovableTokens(playerTokens, rollValue);
 
       if (movable.length === 0) {
-        // No moves possible, turn passes immediately
-        nextPlayer = (state.activePlayer + 1) % 4;
-        nextPhase = 'rolling';
-        nextConsecutiveSixes = 0; // Reset sixes if turn rotates
-        msg = `${getPlayerName(playerIndex)} rolled ${rollValue} but has no moves. Turn passes to ${getPlayerName(nextPlayer)}.`;
+        msg = `${getPlayerName(playerIndex)} rolled ${rollValue} but has no moves.`;
         
         return {
           ...state,
           diceValue: rollValue,
-          activePlayer: nextPlayer,
           consecutiveSixes: 0,
-          hasRolled: false,
-          gamePhase: nextPhase,
+          hasRolled: true,
+          gamePhase: 'moving',
           movableTokenIds: [],
           message: msg,
         };
@@ -261,6 +257,24 @@ export function ludoReducer(state: LudoState, action: LudoAction, playerNames: s
         gamePhase: 'rolling',
         movableTokenIds: [],
         message: moveLogMsg,
+      };
+    }
+
+    case 'PASS_TURN': {
+      const { playerIndex } = action;
+      if (state.activePlayer !== playerIndex || state.gamePhase !== 'moving' || state.movableTokenIds.length > 0) {
+        return state;
+      }
+      const nextPlayer = (state.activePlayer + 1) % 4;
+      return {
+        ...state,
+        activePlayer: nextPlayer,
+        consecutiveSixes: 0,
+        diceValue: 0,
+        hasRolled: false,
+        gamePhase: 'rolling',
+        movableTokenIds: [],
+        message: `Next turn for ${getPlayerName(nextPlayer)}.`,
       };
     }
 

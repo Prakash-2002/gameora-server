@@ -445,6 +445,21 @@ function processLudoAction(roomId: string, action: LudoAction) {
   // Reset the turn timer for the next turn
   resetTurnTimer(roomId);
 
+  // Check if player has no moves (auto-pass after delay)
+  const s = room.gameState as LudoState;
+  if (s.gamePhase === 'moving' && s.movableTokenIds.length === 0) {
+    const activeIdx = s.activePlayer;
+    setTimeout(() => {
+      const currentRoom = rooms.get(roomId);
+      if (!currentRoom || !currentRoom.gameState || currentRoom.gameType !== 'ludo') return;
+      const currentS = currentRoom.gameState as LudoState;
+      if (currentS.activePlayer === activeIdx && currentS.gamePhase === 'moving' && currentS.movableTokenIds.length === 0) {
+        processLudoAction(roomId, { type: 'PASS_TURN', playerIndex: activeIdx });
+      }
+    }, 1500); // 1.5s delay to let players see the roll
+    return;
+  }
+
   // Trigger bot turn if active player is a bot
   triggerLudoBotActionIfActive(roomId);
 }
@@ -456,6 +471,7 @@ function triggerLudoBotActionIfActive(roomId: string) {
 
   const s = room.gameState as LudoState;
   if (s.gamePhase === 'game_over') return;
+  if (s.gamePhase === 'moving' && s.movableTokenIds.length === 0) return; // Wait for auto-pass turn
 
   const activeIdx = s.activePlayer;
   if (activeIdx < 0 || activeIdx >= 4) return;
@@ -690,7 +706,8 @@ io.on('connection', (socket: Socket) => {
       return;
     }
 
-    if (room.players.length >= 4) {
+    const maxPlayers = (room.gameType === 'tictactoe' || room.gameType === 'sudoku' || room.gameType === 'chess') ? 2 : 4;
+    if (room.players.length >= maxPlayers) {
       socket.emit('error-msg', { message: 'Room is full.' });
       return;
     }

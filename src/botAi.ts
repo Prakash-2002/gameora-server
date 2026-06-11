@@ -39,11 +39,9 @@ export const decideBid = (
     maxComfortableBid = 18;
   } else if (evaluationScore >= 5) {
     maxComfortableBid = 16;
-  } else if (evaluationScore >= 3.5) {
-    maxComfortableBid = 14;
   }
 
-  const minBidToMake = currentBid === 0 ? 14 : currentBid + 1;
+  const minBidToMake = currentBid === 0 ? 16 : currentBid + 1;
 
   if (bidWinner !== null && isPartner(bidWinner, botIndex)) {
     if (evaluationScore < 8.5) {
