@@ -379,10 +379,10 @@ function triggerBotActionIfActive(roomId: string) {
   if (!activePlayerObj || !activePlayerObj.isBot) return;
 
   // Determine delay dynamically:
-  // If we just completed a trick and are transitioning, wait 300ms so humans can see the trick cards.
-  // Otherwise, play quickly (20ms) to make the game flow instantly.
+  // If we just completed a trick and are transitioning, wait 2000ms so humans can see the trick cards.
+  // Otherwise, play with a 1000ms (1 second) delay for natural game flow.
   const isTrickTransition = s.gamePhase === 'playing' && s.currentTrick.plays.length === 0 && s.tricksPlayed.length > 0;
-  const delay = isTrickTransition ? 300 : 20;
+  const delay = isTrickTransition ? 2000 : 1000;
 
   // Schedule bot move with a short delay to feel human-like
   setTimeout(() => {
@@ -763,7 +763,7 @@ io.on('connection', (socket: Socket) => {
     for (let i = initialCount; i < maxPlayers; i++) {
       filledPlayers.push({
         socketId: `bot_${i}`,
-        name: `Bot ${i}`,
+        name: `Player ${i}`,
         isReady: true,
         isHost: false,
         isBot: true,
@@ -1049,7 +1049,7 @@ io.on('connection', (socket: Socket) => {
       // Game is in progress: replace with bot (existing logic)
       console.log(`Player ${player.name} left room ${roomId} mid-game explicitly. Replacing with Bot.`);
       player.isBot = true;
-      player.name = `${player.name} (Bot)`;
+      player.name = `${player.name} (Player)`;
       player.socketId = `bot_${player.playerIndex}`;
       
       socket.leave(roomId);
@@ -1209,7 +1209,7 @@ io.on('connection', (socket: Socket) => {
         // Game is in progress: replace disconnected human with a bot
         console.log(`Player ${player.name} left mid-game in room ${roomId}. Replacing with Bot.`);
         player.isBot = true;
-        player.name = `${player.name} (Bot)`;
+        player.name = `${player.name} (Player)`;
         player.socketId = `bot_${player.playerIndex}`;
 
         // Verify if all players are bots now
