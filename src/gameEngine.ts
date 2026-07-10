@@ -69,6 +69,8 @@ export const evaluateTrickWinner = (
 
   const isPlayTrump = (play: Play, index: number): boolean => {
     if (!trumpSuit || play.card.suit !== trumpSuit) return false;
+    // If the lead suit matches the trump suit, any play of this suit is a trump card
+    if (leadSuit === trumpSuit) return true;
     if (isTrumpRevealedBeforeTrick) return true;
     if (trumpRevealPlayIndex !== null && index >= trumpRevealPlayIndex) return true;
     return false;

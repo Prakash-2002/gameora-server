@@ -3,6 +3,8 @@ import { createServer } from 'http';
 import { Server, Socket } from 'socket.io';
 import cors from 'cors';
 import { AccessToken } from 'livekit-server-sdk';
+import * as admin from 'firebase-admin';
+import dotenv from 'dotenv';
 import { Room, Player, GameState, Card, Suit, GamePhase } from './types.js';
 import { getInitialState, gameReducer, sanitizeStateForPlayer, Action } from './gameEngine.js';
 import { decideBid, decideTrumpSuit, decidePlayCard } from './botAi.js';
@@ -15,22 +17,54 @@ import { getInitialSudokuState, sudokuReducer, decideSudokuMove } from './sudoku
 import { ChessState } from './chessTypes.js';
 import { getInitialChessState, chessReducer, decideChessMove, ChessAction } from './chessEngine.js';
 
+dotenv.config();
+
+// Initialize Firebase Admin with just the project ID for ID Token verification
+admin.initializeApp({
+  projectId: 'gameora-ba8e1',
+});
+
 const app = express();
-app.use(cors());
+
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : '*';
+
+app.use(cors({
+  origin: allowedOrigins,
+  methods: ['GET', 'POST'],
+}));
 
 // Health check endpoint for Render/browser verification
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Gameora Matchmaking Server is running!' });
 });
 
-const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || 'devkey';
-const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || 'secret';
+const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY;
+const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET;
 
-// LiveKit Token generation endpoint
+// LiveKit Token generation endpoint (secured with Firebase ID token)
 app.get('/livekit/token', async (req, res) => {
   const { room, identity } = req.query;
   if (!room || !identity) {
     return res.status(400).json({ error: 'room and identity query params are required' });
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized: Missing token' });
+  }
+
+  const idToken = authHeader.split('Bearer ')[1];
+  try {
+    // Verify Firebase ID Token
+    await admin.auth().verifyIdToken(idToken);
+  } catch (error) {
+    return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+  }
+
+  if (!LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
+    return res.status(500).json({ error: 'LiveKit keys not configured on server' });
   }
 
   try {
@@ -57,9 +91,27 @@ app.get('/livekit/token', async (req, res) => {
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: '*',
+    origin: allowedOrigins,
     methods: ['GET', 'POST'],
   },
+});
+
+// Socket.IO Authentication Middleware (verifies Firebase ID Token)
+io.use(async (socket, next) => {
+  const token = socket.handshake.auth?.token;
+  if (!token) {
+    return next(new Error('Authentication required'));
+  }
+  try {
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    socket.data = {
+      uid: decodedToken.uid,
+      email: decodedToken.email,
+    };
+    next();
+  } catch (error) {
+    return next(new Error('Authentication failed: Invalid token'));
+  }
 });
 
 const PORT = process.env.PORT || 3000;
@@ -873,7 +925,17 @@ io.on('connection', (socket: Socket) => {
     const gameState = room.gameState as GameState;
     if (!sender || gameState.activePlayer !== sender.playerIndex) return;
 
-    processAction(roomId, { type: 'PLAY_CARD', playerIndex: sender.playerIndex, card });
+    // Validate that the player actually holds this card in their hand
+    const playerHand = gameState.playerHands[sender.playerIndex];
+    if (!playerHand) return;
+    const actualCard = playerHand.find(c => c.id === card.id);
+    if (!actualCard) {
+      console.warn(`Cheating attempt detected: Player ${sender.playerIndex} tried to play card ${card.id} which is not in their hand.`);
+      socket.emit('error-msg', { message: 'Cheat detected: Card not in your hand!' });
+      return;
+    }
+
+    processAction(roomId, { type: 'PLAY_CARD', playerIndex: sender.playerIndex, card: actualCard });
   });
 
   // Action Request Reveal Trump
